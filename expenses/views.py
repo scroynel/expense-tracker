@@ -6,12 +6,26 @@ from .serializer import CategorySerializer, TransactionSerializer
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
-    queryset = Category.objects.all()
     serializer_class = CategorySerializer
     permission_classes = [IsAuthenticated]
 
 
+    def get_queryset(self):
+        return Category.objects.filter(owner=self.request.user)
+    
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+
+
 class TransactionViewSet(viewsets.ModelViewSet):
-    queryset = Transaction.objects.all()
     serializer_class = TransactionSerializer
     permission_classes = [IsAuthenticated]
+
+
+    def get_queryset(self):
+        return Transaction.objects.filter(owner=self.request.user)
+    
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
