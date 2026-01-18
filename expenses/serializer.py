@@ -9,6 +9,9 @@ class CategorySerializer(serializers.ModelSerializer):
 
 
 class TransactionSerializer(serializers.ModelSerializer):
+    category = serializers.StringRelatedField()
+
+
     class Meta:
         model = Transaction
         fields = '__all__'
