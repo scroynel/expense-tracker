@@ -1,4 +1,8 @@
-from django.db.models import Sum, Case, When, DecimalField, DateField
+
+from collections import defaultdict
+import json
+
+from django.db.models import Sum, Case, When, DecimalField, F, Value
 from django.db.models.functions import TruncDate, Cast, ExtractWeek, ExtractMonth, ExtractYear
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -7,6 +11,9 @@ from rest_framework.response import Response
 from .models import Category, Transaction
 from .serializer import CategorySerializer, TransactionSerializer
 from .filters import TransactionFilter
+
+
+from expenses.services.stats import get_time_stats
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
@@ -47,6 +54,28 @@ class TransactionViewSet(viewsets.ModelViewSet):
 
         income_total = income.aggregate(total=Sum('amount'))['total'] or 0
         expense_total = expense.aggregate(total=Sum('amount'))['total'] or 0
+
+
+        # By category stats
+        category_qs = (
+            qs.values(category_name=F('category__name')).annotate(
+                income = Sum(Case(When(type=Transaction.INCOME, then='amount'), default=0, output_field=DecimalField())),
+                expense = Sum(Case(When(type=Transaction.EXPENSE, then='amount'), default=0, output_field=DecimalField()))
+            )
+        ).order_by('category')
+
+        by_category = defaultdict(list)
+
+        for category in Category.objects.all().order_by('name'):
+
+            by_category[category.name] = {
+                category.name: {
+                    'yearly': get_time_stats(qs, 'year'),
+                    'monthly': get_time_stats(qs, 'month'),
+                    'weekly': get_time_stats(qs, 'week'),
+                }
+            }
+                
 
         # Daily stats
         daily_qs = (
@@ -117,7 +146,7 @@ class TransactionViewSet(viewsets.ModelViewSet):
                 expense = Sum(Case(When(type=Transaction.EXPENSE, then='amount'), default=0, output_field=DecimalField()))
             ).order_by('year')
         )
-        print(yearly_qs)
+
 
         yearly = [
             {
@@ -132,6 +161,7 @@ class TransactionViewSet(viewsets.ModelViewSet):
 
         data = {
             'transaction_count': qs.count(),
+            'by_category': list(by_category.values()),
             'daily': daily,
             'weekly': weekly,
             'monthly': monthly,
