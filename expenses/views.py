@@ -55,26 +55,18 @@ class TransactionViewSet(viewsets.ModelViewSet):
         income_total = income.aggregate(total=Sum('amount'))['total'] or 0
         expense_total = expense.aggregate(total=Sum('amount'))['total'] or 0
 
-
-        # By category stats
-        category_qs = (
-            qs.values(category_name=F('category__name')).annotate(
-                income = Sum(Case(When(type=Transaction.INCOME, then='amount'), default=0, output_field=DecimalField())),
-                expense = Sum(Case(When(type=Transaction.EXPENSE, then='amount'), default=0, output_field=DecimalField()))
-            )
-        ).order_by('category')
-
+        # By categories stats
         by_category = defaultdict(list)
 
         for category in Category.objects.all().order_by('name'):
-
-            by_category[category.name] = {
-                category.name: {
-                    'yearly': get_time_stats(qs, 'year'),
-                    'monthly': get_time_stats(qs, 'month'),
-                    'weekly': get_time_stats(qs, 'week'),
+            if Transaction.objects.filter(category=category):
+                by_category[category.name] = {
+                    category.name: {
+                        'yearly': get_time_stats(qs, 'year', category),
+                        'monthly': get_time_stats(qs, 'month', category),
+                        'weekly': get_time_stats(qs, 'week', category),
+                    }
                 }
-            }
                 
 
         # Daily stats
@@ -96,67 +88,16 @@ class TransactionViewSet(viewsets.ModelViewSet):
             for item in daily_qs
         ]
         
-
         # Weekly stats
-        weekly_qs = (
-            qs.annotate(year=ExtractYear('date'), week=ExtractWeek('date')).values('year', 'week').annotate(
-                income = Sum(Case(When(type=Transaction.INCOME, then='amount'), default=0, output_field=DecimalField())),
-                expense = Sum(Case(When(type=Transaction.EXPENSE, then='amount'), default=0, output_field=DecimalField()))
-            )
-        ).order_by('year', 'week')
-
-
-        weekly = [
-            {
-            'year': item['year'],
-            'week': item['week'],
-            'income': item['income'],
-            'expense': item['expense'],
-            'net': item['income'] - item['expense']
-            }
-            for item in weekly_qs
-        ]
-
+        weekly = get_time_stats(qs, 'week')
 
         # Monthly stats
-        monthly_qs = (
-            qs.annotate(year=ExtractYear('date'), month=ExtractMonth('date')).values('year', 'month').annotate(
-                income = Sum(Case(When(type=Transaction.INCOME, then='amount'), default=0, output_field=DecimalField())),
-                expense = Sum(Case(When(type=Transaction.EXPENSE, then='amount'), default=0, output_field=DecimalField()))
-            ).order_by('year', 'month')
-        )
+        monthly = get_time_stats(qs, 'month')
+
+        #yearly stats
+        yearly = get_time_stats(qs, 'year')
 
 
-        monthly = [
-            {
-                'year': item['year'],
-                'month': item['month'],
-                'income': item['income'],
-                'expense': item['expense'],
-                'net': item['income'] - item['expense']
-            }
-            for item in monthly_qs
-        ]
-
-
-        # Yearly stats
-        yearly_qs = (
-            qs.annotate(year=ExtractYear('date')).values('year').annotate(
-                income = Sum(Case(When(type=Transaction.INCOME, then='amount'), default=0, output_field=DecimalField())),
-                expense = Sum(Case(When(type=Transaction.EXPENSE, then='amount'), default=0, output_field=DecimalField()))
-            ).order_by('year')
-        )
-
-
-        yearly = [
-            {
-                'year': item['year'],
-                'income': item['income'],
-                'expense': item['expense'],
-                'net': item['income'] - item['expense']
-            }
-            for item in yearly_qs
-        ]
 
 
         data = {
