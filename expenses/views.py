@@ -2,7 +2,7 @@
 from collections import defaultdict
 import json
 
-from django.db.models import Sum, Case, When, DecimalField, F, Value
+from django.db.models import Sum, Case, When, DecimalField, F, Value, Max, Min
 from django.db.models.functions import TruncDate, Cast, ExtractWeek, ExtractMonth, ExtractYear
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -98,10 +98,28 @@ class TransactionViewSet(viewsets.ModelViewSet):
         yearly = get_time_stats(qs, 'year')
 
 
+        # All time stats
+        all_time_income = qs.filter(type=Transaction.INCOME).aggregate(Sum('amount'))['amount__sum']
+        all_time_expense = qs.filter(type=Transaction.EXPENSE).aggregate(Sum('amount'))['amount__sum']
 
+
+        # The most expensive day
+        cheapest_expensive_day = qs.filter(type=Transaction.EXPENSE).values('date').annotate(total=Sum('amount')).order_by('total')
+        cheapest_day = cheapest_expensive_day.first()
+        expensive_day = cheapest_expensive_day.order_by('-total').first()
+
+
+        # Balance stats
+        balance = all_time_income - all_time_expense
+        
 
         data = {
             'transaction_count': qs.count(),
+            'balance': balance,
+            'total_income': all_time_income,
+            'total_expense': all_time_expense,
+            'cheapest_day': cheapest_day,
+            'expensive_day': expensive_day,
             'by_category': list(by_category.values()),
             'daily': daily,
             'weekly': weekly,
