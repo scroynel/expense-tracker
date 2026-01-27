@@ -13,7 +13,7 @@ from .serializer import CategorySerializer, TransactionSerializer
 from .filters import TransactionFilter
 
 
-from expenses.services.stats import get_time_stats
+from expenses.services.stats import get_time_stats, PERIOD_CONFIG
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
@@ -128,4 +128,74 @@ class TransactionViewSet(viewsets.ModelViewSet):
         }
 
         return Response(data)
+    
+
+class StatsViewSet(viewsets.GenericViewSet):
+    queryset = Transaction.objects.all()
+    permission_classes = [IsAuthenticated]
+    serializer_class = TransactionSerializer
+
+
+    @action(detail=False, methods=['get'])
+    def overview(self, request):
+        qs = self.get_queryset()
+
+        income = qs.filter(type=Transaction.INCOME)
+        expense = qs.filter(type=Transaction.EXPENSE)
+
+        income_total = income.aggregate(total=Sum('amount'))['total'] or 0
+        expense_total = expense.aggregate(total=Sum('amount'))['total'] or 0
+
+        # Balance stats
+        balance = income_total - expense_total
+
+        data = {
+            'transaction_count': qs.count(),
+            'balance': balance,
+            'total_income': income_total,
+            'total_expense': expense_total,
+        }
+
+        return Response(data)
+    
+
+    @action(detail=False, methods=['get'])
+    def categories(self, request):
         
+        categories = Category.objects.all().order_by('name')
+
+        by_category = defaultdict(list)
+
+        for category in categories:
+            income = self.get_queryset().filter(category=category, type=Transaction.INCOME).aggregate(Sum('amount'))['amount__sum'] or 0
+            expense = self.get_queryset().filter(category=category, type=Transaction.EXPENSE).aggregate(Sum('amount'))['amount__sum'] or 0
+
+            if Transaction.objects.filter(category=category):
+                by_category[category.name].append({
+                    'income': income,
+                    'expense': expense,
+                    'net': income - expense,
+                    'daily': get_time_stats(self.get_queryset(), 'day', category), 
+                    'weekly': get_time_stats(self.get_queryset(), 'week', category), 
+                    'monthly': get_time_stats(self.get_queryset(), 'month', category), 
+                    'yearly': get_time_stats(self.get_queryset(), 'year', category) 
+                })
+        
+        
+        return Response(by_category)
+    
+
+    @action(detail=False, methods=['get'])
+    def time(self, request):
+        period = request.query_params.get('period', 'month').lower()
+        print(period)
+
+        if period not in PERIOD_CONFIG:
+            return Response({"error": f"Invalid period: {period}"}, status=400)
+        
+        qs = self.get_queryset()
+        data = get_time_stats(qs, period)
+        
+        return Response({
+            period: data
+        })

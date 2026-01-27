@@ -1,6 +1,5 @@
 from django.db.models import Sum, Case, When, DecimalField, ExpressionWrapper, F
-from django.db.models.functions import ExtractYear, ExtractMonth, ExtractWeek
-
+from django.db.models.functions import ExtractYear, ExtractMonth, ExtractWeek, ExtractDay
 from expenses.models import Transaction
 
 
@@ -25,6 +24,14 @@ PERIOD_CONFIG = {
             'week': ExtractWeek('date')
         },
         'order_by': ['year', 'week']
+    },
+    'day': {
+        'fields': {
+            'year': ExtractYear('date'),
+            'month': ExtractMonth('date'),
+            'day': ExtractDay('date'),
+        },
+        'order_by': ['year', 'month', 'day']
     }
 }
 
