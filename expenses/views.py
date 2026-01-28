@@ -13,7 +13,7 @@ from .serializer import CategorySerializer, TransactionSerializer
 from .filters import TransactionFilter
 
 
-from expenses.services.stats import get_time_stats, PERIOD_CONFIG
+from expenses.services.stats import get_time_stats, PERIOD_CONFIG, get_time_extreme_stats
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
@@ -187,15 +187,42 @@ class StatsViewSet(viewsets.GenericViewSet):
 
     @action(detail=False, methods=['get'])
     def time(self, request):
-        period = request.query_params.get('period', 'month').lower()
-        print(period)
+        period = request.query_params.get('period')
+        if period is not None:
+            period = period.lower()
 
-        if period not in PERIOD_CONFIG:
+        if period not in PERIOD_CONFIG and period is None:
             return Response({"error": f"Invalid period: {period}"}, status=400)
         
         qs = self.get_queryset()
-        data = get_time_stats(qs, period)
+        time_stats = get_time_stats(qs, period)
+
+        data = {
+            period: time_stats
+        }
         
-        return Response({
-            period: data
-        })
+        return Response(data)
+    
+
+    @action(detail=False, methods=['get'])
+    def extreme_day(self, request):
+        # period = request.query_params.get('period', 'day').lower()
+        period = request.query_params.get('period')
+        
+        if period not in PERIOD_CONFIG and period is None:
+            return Response({"error": f"Invalid period: {period}"}, status=400)
+
+        qs = self.get_queryset().filter(type=Transaction.EXPENSE)
+        data = get_time_extreme_stats(qs, period)
+
+        cheapest = data.first()
+        expensive = data.order_by('-total').first()
+
+        data = {
+            period: {
+                'cheapest': cheapest,
+                'expensive': expensive
+            }
+        }
+
+        return Response(data)

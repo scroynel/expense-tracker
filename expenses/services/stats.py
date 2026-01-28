@@ -49,3 +49,9 @@ def get_time_stats(qs, period: str, category=None):
     ).order_by(*config['order_by']))
 
     return result
+
+
+def get_time_extreme_stats(qs, period: str):
+    config = PERIOD_CONFIG[period]
+    result = qs.annotate(**config['fields']).values(*config['fields'].keys()).annotate(total=Sum('amount')).order_by('total')
+    return result
