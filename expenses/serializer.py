@@ -6,6 +6,7 @@ class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
         fields = '__all__'
+        read_only_fields = ['owner']
 
 
 class TransactionSerializer(serializers.ModelSerializer):
@@ -15,3 +16,4 @@ class TransactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = Transaction
         fields = '__all__'
+        read_only_fields = ['owner']

@@ -1,24 +1,25 @@
 
 from collections import defaultdict
-import json
 
-from django.db.models import Sum, Case, When, DecimalField, F, Value, Max, Min
-from django.db.models.functions import TruncDate, Cast, ExtractWeek, ExtractMonth, ExtractYear
+from django.db.models import Sum, Case, When, DecimalField
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
 from .models import Category, Transaction
 from .serializer import CategorySerializer, TransactionSerializer
 from .filters import TransactionFilter
 
 
-from expenses.services.stats import get_time_stats, PERIOD_CONFIG, get_time_extreme_stats
+from .services.stats import get_time_stats, PERIOD_CONFIG, get_time_extreme_stats
+from .permissions import IsOwner
+from .paginations import CustomPagination10
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
     serializer_class = CategorySerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsOwner]
 
 
     def get_queryset(self):
@@ -31,8 +32,9 @@ class CategoryViewSet(viewsets.ModelViewSet):
 
 class TransactionViewSet(viewsets.ModelViewSet):
     serializer_class = TransactionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsOwner]
     filterset_class = TransactionFilter
+    pagination_class = CustomPagination10
     ordering_fields = ['amount', 'date']
     ordering = ['-date']
 
