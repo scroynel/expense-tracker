@@ -135,9 +135,21 @@ REST_FRAMEWORK = {
     'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend',
                                 'rest_framework.filters.OrderingFilter',],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.LimitOffsetPagination',
-    'PAGE_SIZE': 100
+    'PAGE_SIZE': 100,
+    'DEFAULT_THROTTLE_CLASSES': [
+        # 'rest_framework.throttling.AnonRateThrottle',
+        # 'rest_framework.throttling.UserRateThrottle',
+        'rest_framework.throttling.ScopedRateThrottle',
+        'expenses.throttle.StatsThrottling'
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'login' : '2/min',
+        'category': '2/min',
+        'stats': '500/day'
+        # 'anon': '2/min',
+        # 'user': '100/min',
+    }
 }
-
 
 SIMPLE_JWT = {
     # "ACCESS_TOKEN_LIFETIME": timedelta(minutes=30),

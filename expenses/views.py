@@ -11,7 +11,6 @@ from .models import Category, Transaction
 from .serializer import CategorySerializer, TransactionSerializer
 from .filters import TransactionFilter
 
-
 from .services.stats import get_time_stats, PERIOD_CONFIG, get_time_extreme_stats
 from .permissions import IsOwner
 from .paginations import CustomPagination10
@@ -20,7 +19,7 @@ from .paginations import CustomPagination10
 class CategoryViewSet(viewsets.ModelViewSet):
     serializer_class = CategorySerializer
     permission_classes = [IsAuthenticated, IsOwner]
-
+    throttle_scope = 'category'
 
     def get_queryset(self):
         return Category.objects.filter(owner=self.request.user)
@@ -131,6 +130,7 @@ class TransactionViewSet(viewsets.ModelViewSet):
 
         return Response(data)
     
+from expenses.throttle import StatsThrottling
 
 class StatsViewSet(viewsets.GenericViewSet):
     queryset = Transaction.objects.all()
@@ -138,7 +138,7 @@ class StatsViewSet(viewsets.GenericViewSet):
     serializer_class = TransactionSerializer
 
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], throttle_classes=[StatsThrottling,])
     def overview(self, request):
         qs = self.get_queryset()
 
