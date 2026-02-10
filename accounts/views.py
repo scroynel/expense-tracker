@@ -25,7 +25,7 @@ class LoginView(APIView):
             return Response({'detail': 'Invalid credentials'}, status=status.HTTP_400_BAD_REQUEST)
         
         login(request, user)
-        return Response({'detail': 'Logged In'}, status=status.HTTP_200_OK)
+        return Response({'detail': f'Logged In'}, status=status.HTTP_200_OK)
         
 
 

@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'debug_toolbar',
     'rest_framework',
     'django_filters',
     'expenses',
@@ -52,6 +53,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'debug_toolbar.middleware.DebugToolbarMiddleware',
 ]
 
 ROOT_URLCONF = 'project.urls'
@@ -143,8 +145,11 @@ REST_FRAMEWORK = {
         'expenses.throttle.StatsThrottling'
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'login' : '2/min',
-        'category': '2/min',
+        'login' : '5/min',
+        'login_daily' : '20/day',
+        'register' : '3/min',
+        'register_daily' : '10/min',
+        'category': '100/min',
         'stats': '500/day'
         # 'anon': '2/min',
         # 'user': '100/min',
@@ -159,3 +164,8 @@ SIMPLE_JWT = {
 
 
 AUTH_USER_MODEL = 'accounts.User'
+
+
+INTERNAL_IPS = [
+    "127.0.0.1",
+]
