@@ -15,6 +15,8 @@ from .services.stats import get_time_stats, PERIOD_CONFIG, get_time_extreme_stat
 from .permissions import IsOwner
 from .paginations import CustomPagination10
 
+from expenses.throttle import StatsThrottling
+
 
 class CategoryViewSet(viewsets.ModelViewSet):
     serializer_class = CategorySerializer
@@ -39,98 +41,12 @@ class TransactionViewSet(viewsets.ModelViewSet):
 
 
     def get_queryset(self):
-        return Transaction.objects.filter(owner=self.request.user)
+        return Transaction.objects.filter(owner=self.request.user).select_related('category')
     
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
 
-
-    @action(detail=False, methods=['get'])
-    def stats(self, request):
-        qs = self.filter_queryset(self.get_queryset()).filter(date__isnull=False)
-
-        income = qs.filter(type=Transaction.INCOME)
-        expense = qs.filter(type=Transaction.EXPENSE)
-
-        income_total = income.aggregate(total=Sum('amount'))['total'] or 0
-        expense_total = expense.aggregate(total=Sum('amount'))['total'] or 0
-
-        # By categories stats
-        by_category = defaultdict(list)
-
-        for category in Category.objects.all().order_by('name'):
-            if Transaction.objects.filter(category=category):
-                by_category[category.name] = {
-                    category.name: {
-                        'yearly': get_time_stats(qs, 'year', category),
-                        'monthly': get_time_stats(qs, 'month', category),
-                        'weekly': get_time_stats(qs, 'week', category),
-                    }
-                }
-                
-
-        # Daily stats
-        daily_qs = (
-            qs.values('date').annotate(
-                income = Sum(Case(When(type=Transaction.INCOME, then='amount'), default=0, output_field=DecimalField())),
-                expense = Sum(Case(When(type=Transaction.EXPENSE, then='amount'), default=0, output_field=DecimalField()))
-            ).order_by('date')
-        )
-        
-
-        daily = [
-            {
-            'date': item['date'],
-            'income': item['income'],
-            'expense': item['expense'],
-            'net': item['income'] - item['expense']
-            }
-            for item in daily_qs
-        ]
-        
-        # Weekly stats
-        weekly = get_time_stats(qs, 'week')
-
-        # Monthly stats
-        monthly = get_time_stats(qs, 'month')
-
-        #yearly stats
-        yearly = get_time_stats(qs, 'year')
-
-
-        # All time stats
-        all_time_income = qs.filter(type=Transaction.INCOME).aggregate(Sum('amount'))['amount__sum']
-        all_time_expense = qs.filter(type=Transaction.EXPENSE).aggregate(Sum('amount'))['amount__sum']
-
-
-        # The most expensive day
-        cheapest_expensive_day = qs.filter(type=Transaction.EXPENSE).values('date').annotate(total=Sum('amount')).order_by('total')
-        cheapest_day = cheapest_expensive_day.first()
-        expensive_day = cheapest_expensive_day.order_by('-total').first()
-
-
-        # Balance stats
-        balance = all_time_income - all_time_expense
-        
-
-        data = {
-            'transaction_count': qs.count(),
-            'balance': balance,
-            'total_income': all_time_income,
-            'total_expense': all_time_expense,
-            'cheapest_day': cheapest_day,
-            'expensive_day': expensive_day,
-            'by_category': list(by_category.values()),
-            'daily': daily,
-            'weekly': weekly,
-            'monthly': monthly,
-            'yearly': yearly
-        }
-
-        return Response(data)
-    
-from expenses.throttle import StatsThrottling
 
 class StatsViewSet(viewsets.GenericViewSet):
     queryset = Transaction.objects.all()
@@ -140,22 +56,18 @@ class StatsViewSet(viewsets.GenericViewSet):
 
     @action(detail=False, methods=['get'], throttle_classes=[StatsThrottling,])
     def overview(self, request):
-        qs = self.get_queryset()
+        qs = self.get_queryset().values('type').annotate(total=Sum('amount'))
 
-        income = qs.filter(type=Transaction.INCOME)
-        expense = qs.filter(type=Transaction.EXPENSE)
-
-        income_total = income.aggregate(total=Sum('amount'))['total'] or 0
-        expense_total = expense.aggregate(total=Sum('amount'))['total'] or 0
+        result = {item['type']: item['total'] for item in qs}
 
         # Balance stats
-        balance = income_total - expense_total
+        balance = result['income'] - result['expense']
 
         data = {
-            'transaction_count': qs.count(),
+            'transaction_count': self.queryset.count(),
             'balance': balance,
-            'total_income': income_total,
-            'total_expense': expense_total,
+            'total_income': result['income'],
+            'total_expense': result['expense']
         }
 
         return Response(data)
@@ -163,7 +75,6 @@ class StatsViewSet(viewsets.GenericViewSet):
 
     @action(detail=False, methods=['get'])
     def categories(self, request):
-        
         categories = Category.objects.all().order_by('name')
 
         by_category = defaultdict(list)
@@ -218,7 +129,7 @@ class StatsViewSet(viewsets.GenericViewSet):
         data = get_time_extreme_stats(qs, period)
 
         cheapest = data.first()
-        expensive = data.order_by('-total').first()
+        expensive = data.last()
 
         data = {
             period: {
