@@ -39,14 +39,19 @@ PERIOD_CONFIG = {
 def get_time_stats(qs, period: str, category=None):
     config = PERIOD_CONFIG[period]
   
-    if category:
-        qs = qs.filter(category=category)
-
-    result = list(qs.annotate(**config['fields']).values(*config['fields'].keys()).annotate(
-        income = Sum(Case(When(type=Transaction.INCOME, then='amount'), default=0, output_field=DecimalField())),
-        expense = Sum(Case(When(type=Transaction.EXPENSE, then='amount'), default=0, output_field=DecimalField())),
-        net = ExpressionWrapper(F('income') - F('expense'), output_field=DecimalField())
-    ).order_by(*config['order_by']))
+    if category == True:
+        print('categorryyyyyyyyyyy 0000000')
+        result = list(qs.annotate(**config['fields']).values('category__name', *config['fields'].keys()).annotate(
+            income = Sum(Case(When(type=Transaction.INCOME, then='amount'), default=0, output_field=DecimalField())),
+            expense = Sum(Case(When(type=Transaction.EXPENSE, then='amount'), default=0, output_field=DecimalField())),
+            net = ExpressionWrapper(F('income') - F('expense'), output_field=DecimalField())
+        ).order_by('category__name'))
+    else:
+        result = list(qs.annotate(**config['fields']).values(*config['fields'].keys()).annotate(
+            income = Sum(Case(When(type=Transaction.INCOME, then='amount'), default=0, output_field=DecimalField())),
+            expense = Sum(Case(When(type=Transaction.EXPENSE, then='amount'), default=0, output_field=DecimalField())),
+            net = ExpressionWrapper(F('income') - F('expense'), output_field=DecimalField())
+        ).order_by(*config['order_by']))
 
     return result
 

@@ -1,7 +1,7 @@
 
 from collections import defaultdict
 
-from django.db.models import Sum, Case, When, DecimalField
+from django.db.models import Sum, Case, When, DecimalField, ExpressionWrapper, F
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -75,24 +75,46 @@ class StatsViewSet(viewsets.GenericViewSet):
 
     @action(detail=False, methods=['get'])
     def categories(self, request):
-        categories = Category.objects.all().order_by('name')
+        period = request.query_params.get('period')
+        
+        if period is not None:
+            period = period.lower()
+        
+        if period not in PERIOD_CONFIG:
+            return Response({'error': f'Invalid period {period}'}, status=400)
+        
+
+        tran = self.queryset.values('category__name').annotate(
+            income = Sum(Case(When(type=Transaction.INCOME, then='amount'), default=0, output_field=DecimalField())),
+            expense = Sum(Case(When(type=Transaction.EXPENSE, then='amount'), default=0, output_field=DecimalField())),
+        )
+        print(tran)
 
         by_category = defaultdict(list)
 
-        for category in categories:
-            income = self.get_queryset().filter(category=category, type=Transaction.INCOME).aggregate(Sum('amount'))['amount__sum'] or 0
-            expense = self.get_queryset().filter(category=category, type=Transaction.EXPENSE).aggregate(Sum('amount'))['amount__sum'] or 0
+        for categ in tran:
+            by_category[categ['category__name']].append({
+                'income': categ['income'],
+                'expense': categ['expense'],
+                period: get_time_stats(self.queryset, period, categ['category__name'])
+            })
 
-            if Transaction.objects.filter(category=category):
-                by_category[category.name].append({
-                    'income': income,
-                    'expense': expense,
-                    'net': income - expense,
-                    'daily': get_time_stats(self.get_queryset(), 'day', category), 
-                    'weekly': get_time_stats(self.get_queryset(), 'week', category), 
-                    'monthly': get_time_stats(self.get_queryset(), 'month', category), 
-                    'yearly': get_time_stats(self.get_queryset(), 'year', category) 
-                })
+        # categories = Category.objects.all().order_by('name')
+        
+
+        # # by_category = defaultdict(list)
+
+        # for category in categories:
+        #     income = self.get_queryset().filter(category=category, type=Transaction.INCOME).aggregate(Sum('amount'))['amount__sum'] or 0
+        #     expense = self.get_queryset().filter(category=category, type=Transaction.EXPENSE).aggregate(Sum('amount'))['amount__sum'] or 0
+
+        #     if Transaction.objects.filter(category=category):
+        #         by_category[category.name].append({
+        #             'income': income,
+        #             'expense': expense,
+        #             'net': income - expense,
+        #             period: get_time_stats(self.get_queryset(), period, category), 
+        #         })
         
         
         return Response(by_category)
@@ -104,7 +126,7 @@ class StatsViewSet(viewsets.GenericViewSet):
         if period is not None:
             period = period.lower()
 
-        if period not in PERIOD_CONFIG and period is None:
+        if period not in PERIOD_CONFIG:
             return Response({"error": f"Invalid period: {period}"}, status=400)
         
         qs = self.get_queryset()
