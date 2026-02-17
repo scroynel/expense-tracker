@@ -1,4 +1,4 @@
-from django.db.models import Sum, Case, When, DecimalField, ExpressionWrapper, F
+from django.db.models import Sum, Case, When, DecimalField, ExpressionWrapper, F, Q
 from django.db.models.functions import ExtractYear, ExtractMonth, ExtractWeek, ExtractDay
 from expenses.models import Transaction
 
@@ -36,22 +36,33 @@ PERIOD_CONFIG = {
 }
 
 
-def get_time_stats(qs, period: str, category=None):
+def get_time_stats(qs, period: str):
     config = PERIOD_CONFIG[period]
-  
-    if category == True:
-        print('categorryyyyyyyyyyy 0000000')
-        result = list(qs.annotate(**config['fields']).values('category__name', *config['fields'].keys()).annotate(
-            income = Sum(Case(When(type=Transaction.INCOME, then='amount'), default=0, output_field=DecimalField())),
-            expense = Sum(Case(When(type=Transaction.EXPENSE, then='amount'), default=0, output_field=DecimalField())),
-            net = ExpressionWrapper(F('income') - F('expense'), output_field=DecimalField())
-        ).order_by('category__name'))
-    else:
-        result = list(qs.annotate(**config['fields']).values(*config['fields'].keys()).annotate(
-            income = Sum(Case(When(type=Transaction.INCOME, then='amount'), default=0, output_field=DecimalField())),
-            expense = Sum(Case(When(type=Transaction.EXPENSE, then='amount'), default=0, output_field=DecimalField())),
-            net = ExpressionWrapper(F('income') - F('expense'), output_field=DecimalField())
-        ).order_by(*config['order_by']))
+    
+    result = list(qs.annotate(**config['fields']).values(*config['fields'].keys()).annotate(
+        income = Sum(Case(When(type=Transaction.INCOME, then='amount'), default=0, output_field=DecimalField())),
+        expense = Sum(Case(When(type=Transaction.EXPENSE, then='amount'), default=0, output_field=DecimalField())),
+        net = ExpressionWrapper(F('income') - F('expense'), output_field=DecimalField())
+    ).order_by(*config['order_by']))
+
+    return result
+
+
+def get_categories_stats(qs, period: str):
+    config = PERIOD_CONFIG[period]
+
+    # result = qs.filter(category__name=category).annotate(**config['fields']).values(*config['fields'].keys()).annotate(
+    #     income = Sum(Case(When(type=Transaction.INCOME, then='amount'), default=0, output_field=DecimalField())),
+    #     expense = Sum(Case(When(type=Transaction.EXPENSE, then='amount'), default=0, output_field=DecimalField())),
+    #     net = ExpressionWrapper(F('income') - F('expense'), output_field=DecimalField())
+    # )
+
+    result = qs.annotate(**config['fields']).values('category__name', *config['fields'].keys()).annotate(
+        income = Sum('amount', filter=Q(type=Transaction.INCOME), default=0),
+        expense = Sum('amount', filter=Q(type=Transaction.EXPENSE), default=0)
+    ).annotate(
+        net = F('income') - F('expense')
+    ).order_by('category__name', *config['fields'].keys())
 
     return result
 

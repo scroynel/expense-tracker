@@ -1,7 +1,7 @@
 
 from collections import defaultdict
 
-from django.db.models import Sum, Case, When, DecimalField, ExpressionWrapper, F
+from django.db.models import Sum, Case, When, DecimalField, ExpressionWrapper, F, Max, Min
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -11,7 +11,7 @@ from .models import Category, Transaction
 from .serializer import CategorySerializer, TransactionSerializer
 from .filters import TransactionFilter
 
-from .services.stats import get_time_stats, PERIOD_CONFIG, get_time_extreme_stats
+from .services.stats import get_time_stats, PERIOD_CONFIG, get_time_extreme_stats, get_categories_stats
 from .permissions import IsOwner
 from .paginations import CustomPagination10
 
@@ -56,18 +56,23 @@ class StatsViewSet(viewsets.GenericViewSet):
 
     @action(detail=False, methods=['get'], throttle_classes=[StatsThrottling,])
     def overview(self, request):
-        qs = self.get_queryset().values('type').annotate(total=Sum('amount'))
+        qs = self.get_queryset().values('type').annotate(total=Sum('amount'), max_amount=Max('amount'), min_amount=Min('amount'))
+        print(qs)
 
-        result = {item['type']: item['total'] for item in qs}
-
+        result = {item['type']: {'total': item['total'], 'max_amount': item['max_amount'], 'min_amount': item['min_amount']} for item in qs}
+        print(result)
         # Balance stats
-        balance = result['income'] - result['expense']
+        balance = result['income']['total'] - result['expense']['total']
 
         data = {
             'transaction_count': self.queryset.count(),
             'balance': balance,
-            'total_income': result['income'],
-            'total_expense': result['expense']
+            'total_income': result['income']['total'],
+            'max_income': result['income']['max_amount'],
+            'min_income': result['income']['min_amount'],
+            'total_expense': result['expense']['total'],
+            'max_expense': result['expense']['max_amount'],
+            'min_expense': result['expense']['min_amount'],
         }
 
         return Response(data)
@@ -88,34 +93,39 @@ class StatsViewSet(viewsets.GenericViewSet):
             income = Sum(Case(When(type=Transaction.INCOME, then='amount'), default=0, output_field=DecimalField())),
             expense = Sum(Case(When(type=Transaction.EXPENSE, then='amount'), default=0, output_field=DecimalField())),
         )
-        print(tran)
 
-        by_category = defaultdict(list)
+        # by_category = defaultdict(list)
+        by_category = {}
+    
 
-        for categ in tran:
-            by_category[categ['category__name']].append({
-                'income': categ['income'],
-                'expense': categ['expense'],
-                period: get_time_stats(self.queryset, period, categ['category__name'])
+        data = get_categories_stats(tran, period)
+        
+        period_keys = list(PERIOD_CONFIG[period]['fields'].keys())
+
+        for item in data:
+            category = item['category__name']
+            if category not in by_category:
+                by_category[item['category__name']] = {period: []}
+
+            period_data = {key: item[key] for key in period_keys}
+
+            period_data.update({
+                'income': item['income'],
+                'expense': item['expense'],
+                'net': item['net']
             })
 
-        # categories = Category.objects.all().order_by('name')
-        
+            
 
-        # # by_category = defaultdict(list)
-
-        # for category in categories:
-        #     income = self.get_queryset().filter(category=category, type=Transaction.INCOME).aggregate(Sum('amount'))['amount__sum'] or 0
-        #     expense = self.get_queryset().filter(category=category, type=Transaction.EXPENSE).aggregate(Sum('amount'))['amount__sum'] or 0
-
-        #     if Transaction.objects.filter(category=category):
-        #         by_category[category.name].append({
-        #             'income': income,
-        #             'expense': expense,
-        #             'net': income - expense,
-        #             period: get_time_stats(self.get_queryset(), period, category), 
-        #         })
-        
+            by_category[item['category__name']][period].append(period_data)
+            
+        # for categ in tran:
+        #     by_category[categ['category__name']].append({
+        #         'income': categ['income'],
+        #         'expense': categ['expense'],
+                # period: get_categories_stats(tran, period, categ['category__name'])
+                
+            # })
         
         return Response(by_category)
     
