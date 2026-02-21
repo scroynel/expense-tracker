@@ -1,5 +1,6 @@
 
-from collections import defaultdict
+from django.core.cache import cache
+from decimal import Decimal
 
 from django.db.models import Sum, Case, When, DecimalField, ExpressionWrapper, F, Max, Min
 from rest_framework import viewsets
@@ -11,11 +12,12 @@ from .models import Category, Transaction
 from .serializer import CategorySerializer, TransactionSerializer
 from .filters import TransactionFilter
 
-from .services.stats import get_time_stats, PERIOD_CONFIG, get_time_extreme_stats, get_categories_stats
+from .services.period_stats import get_time_stats, PERIOD_CONFIG, get_time_extreme_stats, get_categories_stats
 from .permissions import IsOwner
 from .paginations import CustomPagination10
 
-from expenses.throttle import StatsThrottling
+from .throttle import StatsThrottling
+from .services.cache_helpers import make_float
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
@@ -49,33 +51,52 @@ class TransactionViewSet(viewsets.ModelViewSet):
 
 
 class StatsViewSet(viewsets.GenericViewSet):
-    queryset = Transaction.objects.all()
     permission_classes = [IsAuthenticated]
     serializer_class = TransactionSerializer
 
 
+    def get_queryset(self):
+        return Transaction.objects.filter(owner=self.request.user)
+
+
     @action(detail=False, methods=['get'], throttle_classes=[StatsThrottling,])
     def overview(self, request):
-        qs = self.get_queryset().values('type').annotate(total=Sum('amount'), max_amount=Max('amount'), min_amount=Min('amount'))
-        print(qs)
+        cache_key = f'stats:user:{request.user.id}'
+        user_stats = cache.get(cache_key) 
 
-        result = {item['type']: {'total': item['total'], 'max_amount': item['max_amount'], 'min_amount': item['min_amount']} for item in qs}
-        print(result)
+        if user_stats:
+            return Response(user_stats)
+
+        qs = self.get_queryset().values('type').annotate(
+            total=Sum('amount'),
+            max_amount=Max('amount'),
+            min_amount=Min('amount')
+        )
+
+        res = {item['type']: item for item in qs}
+     
+        income = res.get('income')
+        expense = res.get('expense')
+        
         # Balance stats
-        balance = result['income']['total'] - result['expense']['total']
+        balance = income['total'] - expense['total']
 
         data = {
-            'transaction_count': self.queryset.count(),
+            'transaction_count': self.get_queryset().count(),
             'balance': balance,
-            'total_income': result['income']['total'],
-            'max_income': result['income']['max_amount'],
-            'min_income': result['income']['min_amount'],
-            'total_expense': result['expense']['total'],
-            'max_expense': result['expense']['max_amount'],
-            'min_expense': result['expense']['min_amount'],
+            'total_income': income['total'],
+            'max_income': income['max_amount'],
+            'min_income': income['min_amount'],
+            'total_expense': expense['total'],
+            'max_expense': expense['max_amount'],
+            'min_expense': expense['min_amount'],
         }
 
-        return Response(data)
+        converted_data = make_float(data)
+
+        cache.set(cache_key, converted_data, timeout=300) # 5 minutes
+
+        return Response(converted_data)
     
 
     @action(detail=False, methods=['get'])
@@ -88,19 +109,16 @@ class StatsViewSet(viewsets.GenericViewSet):
         if period not in PERIOD_CONFIG:
             return Response({'error': f'Invalid period {period}'}, status=400)
         
-
-        tran = self.queryset.values('category__name').annotate(
+        tran = self.get_queryset().values('category__name').annotate(
             income = Sum(Case(When(type=Transaction.INCOME, then='amount'), default=0, output_field=DecimalField())),
             expense = Sum(Case(When(type=Transaction.EXPENSE, then='amount'), default=0, output_field=DecimalField())),
         )
 
-        # by_category = defaultdict(list)
         by_category = {}
     
-
         data = get_categories_stats(tran, period)
         
-        period_keys = list(PERIOD_CONFIG[period]['fields'].keys())
+        period_keys = PERIOD_CONFIG[period]['order_by']
 
         for item in data:
             category = item['category__name']
@@ -115,17 +133,7 @@ class StatsViewSet(viewsets.GenericViewSet):
                 'net': item['net']
             })
 
-            
-
             by_category[item['category__name']][period].append(period_data)
-            
-        # for categ in tran:
-        #     by_category[categ['category__name']].append({
-        #         'income': categ['income'],
-        #         'expense': categ['expense'],
-                # period: get_categories_stats(tran, period, categ['category__name'])
-                
-            # })
         
         return Response(by_category)
     
