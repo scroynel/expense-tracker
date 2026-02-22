@@ -45,14 +45,26 @@ class TransactionViewSet(viewsets.ModelViewSet):
         return Transaction.objects.filter(owner=self.request.user).select_related('category')
     
 
+    def _clear_user_stats_cache(self, user_id):
+        cache.delete(f'stats:overview:user:{user_id}')
+    
+
     def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
-        cache.delete(f'stats:user:{self.request.user.id}')
+        instance = serializer.save(owner=self.request.user)
+        self._clear_user_stats_cache(instance.owner.id)
 
     
     def perform_update(self, serializer):
-        serializer.save()
-        cache.delete(f'stats:user:{self.request.user.id}')        
+        instance = serializer.save()
+        self._clear_user_stats_cache(instance.owner.id)
+
+    
+    def perform_destroy(self, instance):
+        user_id = instance.owner.id
+        instance.delete()
+        self._clear_user_stats_cache(user_id)
+    
+        
 
 
 class StatsViewSet(viewsets.GenericViewSet):
@@ -66,7 +78,7 @@ class StatsViewSet(viewsets.GenericViewSet):
 
     @action(detail=False, methods=['get'], throttle_classes=[StatsThrottling,])
     def overview(self, request):
-        cache_key = f'stats:user:{request.user.id}'
+        cache_key = f'stats:overview:user:{request.user.id}'
         user_stats = cache.get(cache_key) 
 
         if user_stats:
