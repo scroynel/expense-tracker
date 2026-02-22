@@ -1,13 +1,11 @@
 
 from django.core.cache import cache
-from decimal import Decimal
 
-from django.db.models import Sum, Case, When, DecimalField, ExpressionWrapper, F, Max, Min
+from django.db.models import Sum, Case, When, DecimalField, Max, Min
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.pagination import PageNumberPagination
 from .models import Category, Transaction
 from .serializer import CategorySerializer, TransactionSerializer
 from .filters import TransactionFilter
@@ -24,6 +22,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
     serializer_class = CategorySerializer
     permission_classes = [IsAuthenticated, IsOwner]
     throttle_scope = 'category'
+
 
     def get_queryset(self):
         return Category.objects.filter(owner=self.request.user)
@@ -48,6 +47,12 @@ class TransactionViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
+        cache.delete(f'stats:user:{self.request.user.id}')
+
+    
+    def perform_update(self, serializer):
+        serializer.save()
+        cache.delete(f'stats:user:{self.request.user.id}')        
 
 
 class StatsViewSet(viewsets.GenericViewSet):
@@ -89,7 +94,7 @@ class StatsViewSet(viewsets.GenericViewSet):
             'min_income': income['min_amount'],
             'total_expense': expense['total'],
             'max_expense': expense['max_amount'],
-            'min_expense': expense['min_amount'],
+            'min_expense': expense['min_amount']
         }
 
         converted_data = make_float(data)
