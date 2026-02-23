@@ -1,7 +1,7 @@
 
 from django.core.cache import cache
 
-from django.db.models import Sum, Case, When, DecimalField, Max, Min
+from django.db.models import Sum, Case, When, DecimalField, Max, Min, Q, F
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -126,10 +126,21 @@ class StatsViewSet(viewsets.GenericViewSet):
         if period not in PERIOD_CONFIG:
             return Response({'error': f'Invalid period {period}'}, status=400)
         
+        cache_key = f'stats:categories:{period}:{request.user.id}'
+        user_categories_stats = cache.get(cache_key)
+
+        if user_categories_stats:
+            return Response(user_categories_stats)
+        
+        # Total income and expense per Category
         tran = self.get_queryset().values('category__name').annotate(
-            income = Sum(Case(When(type=Transaction.INCOME, then='amount'), default=0, output_field=DecimalField())),
-            expense = Sum(Case(When(type=Transaction.EXPENSE, then='amount'), default=0, output_field=DecimalField())),
+            total_income = Sum('amount', filter=Q(type=Transaction.INCOME), default=0),
+            total_expense = Sum('amount', filter=Q(type=Transaction.EXPENSE), default=0)
+        ).annotate(
+            net = F('total_income') - F('total_expense')
         )
+
+        totals_map = {item['category__name']: item for item in tran}
 
         by_category = {}
     
@@ -140,7 +151,13 @@ class StatsViewSet(viewsets.GenericViewSet):
         for item in data:
             category = item['category__name']
             if category not in by_category:
-                by_category[item['category__name']] = {period: []}
+                totals = totals_map[category]
+                by_category[item['category__name']] = {
+                    'total_income': totals['total_income'],
+                    'total_expense': totals['total_expense'],
+                    'net': totals['net'],
+                    period: []
+                }
 
             period_data = {key: item[key] for key in period_keys}
 
@@ -152,6 +169,10 @@ class StatsViewSet(viewsets.GenericViewSet):
 
             by_category[item['category__name']][period].append(period_data)
         
+        converted_data = make_float(by_category)
+
+        cache.set(cache_key, converted_data, timeout=300) # 5 minutes
+
         return Response(by_category)
     
 
