@@ -1,6 +1,7 @@
 
 from django.core.cache import cache
-
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
 from django.db.models import Sum, Case, When, DecimalField, Max, Min, Q, F
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -15,7 +16,7 @@ from .permissions import IsOwner
 from .paginations import CustomPagination10
 
 from .throttle import StatsThrottling
-from .services.cache_helpers import make_float
+from .services.cache_helpers import make_float, get_user_version, get_stats_overview_cache_key, bump_stats_overview_version
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
@@ -45,24 +46,8 @@ class TransactionViewSet(viewsets.ModelViewSet):
         return Transaction.objects.filter(owner=self.request.user).select_related('category')
     
 
-    def _clear_user_stats_cache(self, user_id):
-        cache.delete(f'stats:overview:user:{user_id}')
-    
-
     def perform_create(self, serializer):
-        instance = serializer.save(owner=self.request.user)
-        self._clear_user_stats_cache(instance.owner.id)
-
-    
-    def perform_update(self, serializer):
-        instance = serializer.save()
-        self._clear_user_stats_cache(instance.owner.id)
-
-    
-    def perform_destroy(self, instance):
-        user_id = instance.owner.id
-        instance.delete()
-        self._clear_user_stats_cache(user_id)
+        serializer.save(owner=self.request.user)
     
         
 
@@ -78,7 +63,7 @@ class StatsViewSet(viewsets.GenericViewSet):
 
     @action(detail=False, methods=['get'], throttle_classes=[StatsThrottling,])
     def overview(self, request):
-        cache_key = f'stats:overview:user:{request.user.id}'
+        cache_key = get_user_version(request.user.id)
         user_stats = cache.get(cache_key) 
 
         if user_stats:
@@ -217,3 +202,9 @@ class StatsViewSet(viewsets.GenericViewSet):
         }
 
         return Response(data)
+    
+@receiver(post_save, sender=Transaction)
+@receiver(post_delete, sender=Transaction)
+def transaction_changed(sender, instance, **kwargs):
+    print(instance)
+    bump_stats_overview_version(instance.owner.id)
